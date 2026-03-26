@@ -31,8 +31,8 @@ class CTASCape(CTASCuckoo):
          'description': 'URL de la API de CAPE (use /apiv2/).'},
         {'name': 'api_token', 'type': 'str', 'default': '',
          'description': 'Token de API de CAPE (DRF TokenAuthentication).'},
-        {'name': 'verify_ssl', 'type': 'bool', 'default': True,
-         'description': 'Verificar certificado SSL al hablar con CAPE.'},
+        {'name': 'verify_ssl', 'type': 'bool', 'default': False,
+         'description': 'Verify SSL certificate when talking to CAPE (disable for self-signed/internal certs).'},
         {'name': 'ignore_failures', 'type': 'bool', 'default': True,
          'description': 'Si el análisis falla en CAPE, no lanzar excepción y devolver el task_id igualmente.'},
         {'name': 'web_endpoint', 'type': 'str',
@@ -84,7 +84,8 @@ class CTASCape(CTASCuckoo):
         self.log('info', f'HTTP {method} {self._full_url(path)}{extra}')
 
     def _make_client(self):
-        self.log('info', f'Inicializando cliente CAPE v3.12: base={self.api_endpoint} verify_ssl={getattr(self, "verify_ssl", True)}')
+        verify = bool(getattr(self, 'verify_ssl', False))
+        self.log('info', f'Initializing CAPE client: base={self.api_endpoint} verify_ssl={verify}')
         cuckoo = Cuckoo(self.api_endpoint, cape=True)
 
         token = (getattr(self, 'api_token', '') or '').strip()
@@ -96,29 +97,30 @@ class CTASCape(CTASCuckoo):
                     if not hasattr(cuckoo, "headers"):
                         setattr(cuckoo, "headers", {})
                     cuckoo.headers["Authorization"] = f"Token {token}"
-                self.log('info', 'Auth: usando Token en Authorization')
+                self.log('info', 'Auth: Token set in Authorization header')
             else:
-                self.log('info', 'Auth: sin Token')
+                self.log('info', 'Auth: no token configured')
         except Exception as e:
-            self.log('warning', f'No se pudo adjuntar Authorization: {e}')
+            self.log('warning', f'Could not attach Authorization header: {e}')
 
         try:
-            if hasattr(cuckoo, "session") and hasattr(self, 'verify_ssl'):
-                cuckoo.session.verify = bool(self.verify_ssl)
+            # Always apply verify_ssl to the session so it matches our config
+            # (cuckoo_api_handler defaults to verify=False for internal/self-signed certs)
+            if hasattr(cuckoo, "session"):
+                cuckoo.session.verify = verify
         except Exception as e:
-            self.log('warning', f'No se pudo ajustar verify SSL: {e}')
+            self.log('warning', f'Could not set SSL verify on session: {e}')
         return cuckoo
 
     def _get_session(self, cuckoo):
-        """Devuelve la sesión del cliente cuckoo si existe, o crea una nueva con el token configurado."""
+        """Returns the cuckoo client session if available, or creates a new authenticated one."""
         if hasattr(cuckoo, "session"):
             return cuckoo.session
         sess = requests.Session()
         token = (getattr(self, 'api_token', '') or '').strip()
         if token:
             sess.headers.update({"Authorization": f"Token {token}"})
-        if hasattr(self, 'verify_ssl'):
-            sess.verify = bool(self.verify_ssl)
+        sess.verify = bool(getattr(self, 'verify_ssl', False))
         return sess
 
     def _safe_get(self, func, *args, **kwargs):
