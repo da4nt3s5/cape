@@ -160,31 +160,342 @@
 
       <!-- Process Tree -->
       {% if results.proctree and results.proctree|length > 0 %}
-        <label>PROCESS TREE</label>
+<label>PROCESS TREE</label>
 
-        {% macro render_node(n) %}
-          {% if n %}
-            <li>
-              <strong>{{ n.image or n.name }}</strong>
-              {% if n.pid %}<small>&nbsp;(PID: {{ n.pid }})</small>{% endif %}
-              {% if n.cmdline %}<div><code>{{ n.cmdline }}</code></div>{% endif %}
-              {% if n.children and n.children|length > 0 %}
-                <ul style="margin-top:5px;">
-                  {% for c in n.children %}
-                    {{ render_node(c) }}
-                  {% endfor %}
-                </ul>
-              {% endif %}
-            </li>
+<style>
+  .pt-wrap { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 4px 0 8px; }
+  .pt-pcard {
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 14px;
+    padding: 14px 16px; margin-bottom: 6px;
+    transition: transform .15s, box-shadow .15s;
+  }
+  .pt-pcard:hover { transform: translateX(3px); box-shadow: 0 2px 12px rgba(0,0,0,.07); }
+  .pt-pcard-top { display: flex; align-items: center; gap: 12px; }
+  .pt-name { font-family: 'Courier New', monospace; font-size: 12.5px; font-weight: 700; color: #111; word-break: break-all; }
+  .pt-sub  { font-size: 11.5px; color: #6b7280; margin-top: 2px; }
+  .pt-pid  { font-family: 'Courier New', monospace; font-size: 10.5px; color: #9ca3af; margin-top: 1px; }
+  .pt-tag  { font-size: 10px; font-weight: 700; letter-spacing: .06em; padding: 3px 10px; border-radius: 6px; margin-left: auto; flex-shrink: 0; white-space: nowrap; }
+  .pt-tag-red    { background: #fef2f2; color: #dc2626; }
+  .pt-tag-amber  { background: #fffbeb; color: #d97706; }
+  .pt-tag-orange { background: #fff7ed; color: #ea580c; }
+  .pt-tag-blue   { background: #eff6ff; color: #2563eb; }
+  .pt-tag-green  { background: #f0fdf4; color: #16a34a; }
+  .pt-tag-purple { background: #faf5ff; color: #7c3aed; }
+  .pt-tag-gray   { background: #f9fafb; color: #6b7280; }
+  .pt-tag-teal   { background: #f0fdfa; color: #0f766e; }
+  .pt-tag-slate  { background: #f8fafc; color: #475569; }
+  .pt-riskbar    { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f3f4f6; }
+  .pt-rb-label   { font-size: 10px; color: #9ca3af; min-width: 32px; }
+  .pt-rb-track   { flex: 1; height: 5px; background: #f3f4f6; border-radius: 3px; overflow: hidden; }
+  .pt-rb-fill    { height: 100%; border-radius: 3px; }
+  .pt-rb-pct     { font-size: 10px; font-weight: 600; min-width: 28px; text-align: right; }
+  .pt-child-wrap { display: flex; margin-bottom: 6px; }
+  .pt-branch     { width: 32px; flex-shrink: 0; position: relative; }
+  .pt-branch::before { content:''; position:absolute; left:14px; top:-6px; width:1px; height:calc(50% + 6px); background:#e5e7eb; }
+  .pt-branch::after  { content:''; position:absolute; left:14px; top:50%; width:18px; height:1px; background:#e5e7eb; }
+  .pt-cmdline {
+    font-family: 'Courier New', monospace; font-size: 10.5px; color: #6b7280;
+    background: #f9fafb; border: 1px solid #f3f4f6; border-radius: 6px;
+    padding: 5px 10px; margin-top: 8px; word-break: break-all; white-space: pre-wrap;
+  }
+  .pt-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+  .pt-sm { background: #f9fafb; border-radius: 10px; padding: 12px; text-align: center; }
+  .pt-sm-n { font-size: 22px; font-weight: 700; font-family: 'Courier New', monospace; }
+  .pt-sm-l { font-size: 10px; color: #9ca3af; margin-top: 2px; letter-spacing: .06em; }
+</style>
+
+{# ── CLASSIFY ── #}
+{% macro classify(name) -%}
+{%- set n = (name or '')|lower -%}
+{%- set b = n.split('\\')|last|split('/')|last|replace('.exe','')|replace('.com','') -%}
+{%- if b|length > 28 or b|regex_search('^[0-9a-f]{8,}$') or b|regex_search('^[a-z0-9]{20,}$') -%}malware
+{%- elif b in ['msbuild','csc','vbc','installutil','regasm','regsvcs','mshta','wscript','cscript',
+               'rundll32','regsvr32','certutil','bitsadmin','wmic','msiexec','odbcconf','xwizard',
+               'mavinject','forfiles','pcalua','presentationhost','aspnet_compiler','ieexec',
+               'infdefaultinstall','cmstp','esentutl','expand','extrac32','findstr','gpscript',
+               'hh','makecab','replace','rpcping','scriptrunner','desktopimgdownldr','diskshadow',
+               'dnscmd','vssadmin','appsyncpublishingserver','microsoft.workflow.compiler'] -%}lolbin
+{%- elif b in ['powershell','powershell_ise','pwsh','cmd','bash','sh','wsh','autoit3','ahk','conhost'] -%}script
+{%- elif b in ['svchost','lsass','lsm','winlogon','csrss','smss','wininit','services','spoolsv',
+               'taskhost','taskhostw','dwm','fontdrvhost','ntoskrnl','system','registry','sihost',
+               'runtimebroker','ctfmon','dllhost','werfault','wmiprvse','audiodg','dashost',
+               'unsecapp','searchprotocolhost','searchfilterhost','dcomlaunch'] -%}system
+{%- elif b in ['explorer','taskmgr','regedit','mmc','control','mstsc','msconfig','resmon','perfmon'] -%}shell
+{%- elif b in ['iexplore','chrome','firefox','msedge','edge','opera','brave','vivaldi','chromium']
+    or 'chrome' in b or 'firefox' in b or 'msedge' in b -%}browser
+{%- elif b in ['winword','excel','powerpnt','outlook','onenote','mspub','visio','access','wordpad',
+               'acrord32','acrobat','foxitreader','soffice','officeclicktorun']
+    or 'word' in b or 'excel' in b or 'office' in b -%}office
+{%- elif b in ['devenv','code','node','python','python3','java','javaw','git','npm','dotnet',
+               'cargo','rustc','gcc','clang','ruby','perl','php','go','gradle','mvn'] -%}dev
+{%- elif b in ['mousocoreworker','tiworker','wuauclt','trustedinstaller','mpcmdrun','msmpeng',
+               'nissrv','searchindexer','schtasks','taskeng','mobsync','uhssvc','wudfhost']
+    or 'update' in b or 'install' in b or 'setup' in b -%}worker
+{%- elif b in ['netsh','ipconfig','ping','nslookup','ftp','ssh','curl','wget','nc','nmap',
+               'tracert','route','arp','hostname','whoami','net','nltest','dsquery'] -%}network
+{%- else -%}generic
+{%- endif -%}
+{%- endmacro %}
+
+{# ── ICON MACRO ── #}
+{% macro proc_icon(name) %}
+{%- set cat = classify(name)|trim -%}
+{%- if cat == 'malware' -%}
+<svg width="44" height="44" viewBox="0 0 44 44" fill="none" style="flex-shrink:0">
+  <rect width="44" height="44" rx="10" fill="#fef2f2"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="#fca5a5" stroke="#ef4444" stroke-width="1"/>
+  <path d="M22 7l6 6h-6V7z" fill="#ef4444" opacity=".6"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="none" stroke="#ef4444" stroke-width="1"/>
+  <text x="19" y="25" font-size="12" fill="#dc2626" text-anchor="middle" font-family="serif">☠</text>
+  <rect x="8" y="28" width="22" height="8" rx="2" fill="#ef4444"/>
+  <text x="19" y="35" font-size="6" font-weight="700" fill="white" text-anchor="middle" font-family="monospace">EXE</text>
+</svg>
+{%- elif cat == 'lolbin' -%}
+<svg width="44" height="44" viewBox="0 0 44 44" fill="none" style="flex-shrink:0">
+  <rect width="44" height="44" rx="10" fill="#fff7ed"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="#fed7aa" stroke="#f97316" stroke-width="1"/>
+  <path d="M22 7l6 6h-6V7z" fill="#f97316" opacity=".7"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="none" stroke="#f97316" stroke-width="1"/>
+  <path d="M21.5 13.5a3 3 0 00-3.8 3.8l-3 3 1.2 1.2 3-3a3 3 0 003.8-3.8l-1.5 1.5-1.2-1.2 1.5-1.5z" fill="#ea580c"/>
+  <rect x="8" y="28" width="22" height="8" rx="2" fill="#f97316"/>
+  <text x="19" y="35" font-size="6" font-weight="700" fill="white" text-anchor="middle" font-family="monospace">EXE</text>
+  <circle cx="30" cy="8" r="5" fill="#dc2626"/>
+  <text x="30" y="11.5" font-size="7" font-weight="700" fill="white" text-anchor="middle" font-family="monospace">!</text>
+</svg>
+{%- elif cat == 'script' -%}
+<svg width="44" height="44" viewBox="0 0 44 44" fill="none" style="flex-shrink:0">
+  <rect width="44" height="44" rx="10" fill="#faf5ff"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="#ddd6fe" stroke="#7c3aed" stroke-width="1"/>
+  <path d="M22 7l6 6h-6V7z" fill="#7c3aed" opacity=".6"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="none" stroke="#7c3aed" stroke-width="1"/>
+  <path d="M13 17l4 3-4 3" stroke="#7c3aed" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="19" y1="23" x2="24" y2="23" stroke="#7c3aed" stroke-width="1.2" stroke-linecap="round"/>
+  <rect x="8" y="28" width="22" height="8" rx="2" fill="#7c3aed"/>
+  <text x="19" y="35" font-size="5.5" font-weight="700" fill="white" text-anchor="middle" font-family="monospace">PS1</text>
+</svg>
+{%- elif cat == 'system' -%}
+<svg width="44" height="44" viewBox="0 0 44 44" fill="none" style="flex-shrink:0">
+  <rect width="44" height="44" rx="10" fill="#eff6ff"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="#bfdbfe" stroke="#3b82f6" stroke-width="1"/>
+  <path d="M22 7l6 6h-6V7z" fill="#3b82f6" opacity=".6"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="none" stroke="#3b82f6" stroke-width="1"/>
+  <rect x="13.5" y="14" width="4" height="4" rx=".5" fill="#2563eb" opacity=".85"/>
+  <rect x="18.5" y="14" width="4" height="4" rx=".5" fill="#2563eb" opacity=".85"/>
+  <rect x="13.5" y="19" width="4" height="4" rx=".5" fill="#2563eb" opacity=".85"/>
+  <rect x="18.5" y="19" width="4" height="4" rx=".5" fill="#2563eb" opacity=".85"/>
+  <rect x="8" y="28" width="22" height="8" rx="2" fill="#3b82f6"/>
+  <text x="19" y="35" font-size="6" font-weight="700" fill="white" text-anchor="middle" font-family="monospace">EXE</text>
+</svg>
+{%- elif cat == 'shell' -%}
+<svg width="44" height="44" viewBox="0 0 44 44" fill="none" style="flex-shrink:0">
+  <rect width="44" height="44" rx="10" fill="#f9fafb"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="#e5e7eb" stroke="#9ca3af" stroke-width="1"/>
+  <path d="M22 7l6 6h-6V7z" fill="#9ca3af" opacity=".6"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="none" stroke="#9ca3af" stroke-width="1"/>
+  <line x1="13" y1="15" x2="24" y2="15" stroke="#6b7280" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="13" y1="18" x2="24" y2="18" stroke="#6b7280" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="13" y1="21" x2="20" y2="21" stroke="#6b7280" stroke-width="1.2" stroke-linecap="round"/>
+  <rect x="8" y="28" width="22" height="8" rx="2" fill="#9ca3af"/>
+  <text x="19" y="35" font-size="6" font-weight="700" fill="white" text-anchor="middle" font-family="monospace">EXE</text>
+</svg>
+{%- elif cat == 'browser' -%}
+<svg width="44" height="44" viewBox="0 0 44 44" fill="none" style="flex-shrink:0">
+  <rect width="44" height="44" rx="10" fill="#f0fdfa"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="#99f6e4" stroke="#0d9488" stroke-width="1"/>
+  <path d="M22 7l6 6h-6V7z" fill="#0d9488" opacity=".6"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="none" stroke="#0d9488" stroke-width="1"/>
+  <circle cx="19" cy="19" r="4.5" stroke="#0f766e" stroke-width="1.2" fill="none"/>
+  <path d="M14.5 19h9M19 14.5c-1.5 1.5-2.5 2.8-2.5 4.5s1 3 2.5 4.5" stroke="#0f766e" stroke-width="1" fill="none"/>
+  <path d="M19 14.5c1.5 1.5 2.5 2.8 2.5 4.5s-1 3-2.5 4.5" stroke="#0f766e" stroke-width="1" fill="none"/>
+  <rect x="8" y="28" width="22" height="8" rx="2" fill="#0d9488"/>
+  <text x="19" y="35" font-size="6" font-weight="700" fill="white" text-anchor="middle" font-family="monospace">EXE</text>
+</svg>
+{%- elif cat == 'office' -%}
+<svg width="44" height="44" viewBox="0 0 44 44" fill="none" style="flex-shrink:0">
+  <rect width="44" height="44" rx="10" fill="#f0fdf4"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="#bbf7d0" stroke="#16a34a" stroke-width="1"/>
+  <path d="M22 7l6 6h-6V7z" fill="#16a34a" opacity=".6"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="none" stroke="#16a34a" stroke-width="1"/>
+  <line x1="13" y1="15" x2="24" y2="15" stroke="#16a34a" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="13" y1="18" x2="24" y2="18" stroke="#16a34a" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="13" y1="21" x2="20" y2="21" stroke="#16a34a" stroke-width="1.2" stroke-linecap="round"/>
+  <rect x="8" y="28" width="22" height="8" rx="2" fill="#16a34a"/>
+  <text x="19" y="35" font-size="5.5" font-weight="700" fill="white" text-anchor="middle" font-family="monospace">DOC</text>
+</svg>
+{%- elif cat == 'dev' -%}
+<svg width="44" height="44" viewBox="0 0 44 44" fill="none" style="flex-shrink:0">
+  <rect width="44" height="44" rx="10" fill="#fffbeb"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="#fde68a" stroke="#f59e0b" stroke-width="1"/>
+  <path d="M22 7l6 6h-6V7z" fill="#f59e0b" opacity=".7"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="none" stroke="#f59e0b" stroke-width="1"/>
+  <circle cx="19" cy="20" r="3.5" stroke="#d97706" stroke-width="1.2" fill="none"/>
+  <circle cx="19" cy="20" r="1.2" fill="#d97706"/>
+  <line x1="19" y1="15.5" x2="19" y2="16.5" stroke="#d97706" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="19" y1="23.5" x2="19" y2="24.5" stroke="#d97706" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="14.5" y1="20" x2="15.5" y2="20" stroke="#d97706" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="22.5" y1="20" x2="23.5" y2="20" stroke="#d97706" stroke-width="1.2" stroke-linecap="round"/>
+  <rect x="8" y="28" width="22" height="8" rx="2" fill="#f59e0b"/>
+  <text x="19" y="35" font-size="6" font-weight="700" fill="white" text-anchor="middle" font-family="monospace">EXE</text>
+</svg>
+{%- elif cat == 'worker' -%}
+<svg width="44" height="44" viewBox="0 0 44 44" fill="none" style="flex-shrink:0">
+  <rect width="44" height="44" rx="10" fill="#f8fafc"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="#cbd5e1" stroke="#64748b" stroke-width="1"/>
+  <path d="M22 7l6 6h-6V7z" fill="#64748b" opacity=".6"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="none" stroke="#64748b" stroke-width="1"/>
+  <circle cx="19" cy="19" r="4" stroke="#475569" stroke-width="1.2" fill="none"/>
+  <path d="M19 16v3.5l2 1.5" stroke="#475569" stroke-width="1.2" stroke-linecap="round"/>
+  <rect x="8" y="28" width="22" height="8" rx="2" fill="#64748b"/>
+  <text x="19" y="35" font-size="6" font-weight="700" fill="white" text-anchor="middle" font-family="monospace">EXE</text>
+</svg>
+{%- elif cat == 'network' -%}
+<svg width="44" height="44" viewBox="0 0 44 44" fill="none" style="flex-shrink:0">
+  <rect width="44" height="44" rx="10" fill="#ecfeff"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="#a5f3fc" stroke="#0891b2" stroke-width="1"/>
+  <path d="M22 7l6 6h-6V7z" fill="#0891b2" opacity=".6"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="none" stroke="#0891b2" stroke-width="1"/>
+  <circle cx="15" cy="16" r="2" stroke="#0e7490" stroke-width="1.1" fill="none"/>
+  <circle cx="23" cy="16" r="2" stroke="#0e7490" stroke-width="1.1" fill="none"/>
+  <circle cx="19" cy="23" r="2" stroke="#0e7490" stroke-width="1.1" fill="none"/>
+  <line x1="15" y1="18" x2="17" y2="21" stroke="#0e7490" stroke-width="1"/>
+  <line x1="23" y1="18" x2="21" y2="21" stroke="#0e7490" stroke-width="1"/>
+  <rect x="8" y="28" width="22" height="8" rx="2" fill="#0891b2"/>
+  <text x="19" y="35" font-size="6" font-weight="700" fill="white" text-anchor="middle" font-family="monospace">EXE</text>
+</svg>
+{%- else -%}
+<svg width="44" height="44" viewBox="0 0 44 44" fill="none" style="flex-shrink:0">
+  <rect width="44" height="44" rx="10" fill="#f0fdf4"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="#bbf7d0" stroke="#22c55e" stroke-width="1"/>
+  <path d="M22 7l6 6h-6V7z" fill="#22c55e" opacity=".6"/>
+  <rect x="10" y="7" width="18" height="23" rx="2" fill="none" stroke="#22c55e" stroke-width="1"/>
+  <path d="M14 19l4 4 6-7" stroke="#16a34a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="8" y="28" width="22" height="8" rx="2" fill="#22c55e"/>
+  <text x="19" y="35" font-size="6" font-weight="700" fill="white" text-anchor="middle" font-family="monospace">EXE</text>
+</svg>
+{%- endif %}
+{% endmacro %}
+
+{# ── TAG MACRO ── #}
+{% macro proc_tag(name) %}
+{%- set cat = classify(name)|trim -%}
+{%- if cat == 'malware' -%}<span class="pt-tag pt-tag-red">MALWARE</span>
+{%- elif cat == 'lolbin' -%}<span class="pt-tag pt-tag-orange">LOLBIN</span>
+{%- elif cat == 'script' -%}<span class="pt-tag pt-tag-purple">SCRIPT</span>
+{%- elif cat == 'system' -%}<span class="pt-tag pt-tag-blue">SISTEMA</span>
+{%- elif cat == 'shell' -%}<span class="pt-tag pt-tag-gray">SHELL</span>
+{%- elif cat == 'browser' -%}<span class="pt-tag pt-tag-teal">BROWSER</span>
+{%- elif cat == 'office' -%}<span class="pt-tag pt-tag-green">OFFICE</span>
+{%- elif cat == 'dev' -%}<span class="pt-tag pt-tag-amber">DEV</span>
+{%- elif cat == 'worker' -%}<span class="pt-tag pt-tag-slate">WORKER</span>
+{%- elif cat == 'network' -%}<span class="pt-tag pt-tag-teal">NETWORK</span>
+{%- else -%}<span class="pt-tag pt-tag-green">LIMPIO</span>
+{%- endif %}
+{% endmacro %}
+
+{# ── RISK BAR MACRO ── #}
+{% macro risk_bar(name) %}
+{%- set cat = classify(name)|trim -%}
+{%- if cat == 'malware' -%}
+  {%- set color='#ef4444' %}{%- set pct=95 %}{%- set lc='#dc2626' -%}
+{%- elif cat == 'lolbin' -%}
+  {%- set color='#f97316' %}{%- set pct=78 %}{%- set lc='#ea580c' -%}
+{%- elif cat == 'script' -%}
+  {%- set color='#a855f7' %}{%- set pct=65 %}{%- set lc='#7c3aed' -%}
+{%- elif cat == 'network' -%}
+  {%- set color='#06b6d4' %}{%- set pct=45 %}{%- set lc='#0891b2' -%}
+{%- elif cat == 'browser' -%}
+  {%- set color='#0d9488' %}{%- set pct=40 %}{%- set lc='#0f766e' -%}
+{%- elif cat == 'office' -%}
+  {%- set color='#22c55e' %}{%- set pct=35 %}{%- set lc='#16a34a' -%}
+{%- elif cat == 'dev' -%}
+  {%- set color='#f59e0b' %}{%- set pct=30 %}{%- set lc='#d97706' -%}
+{%- elif cat == 'worker' -%}
+  {%- set color='#64748b' %}{%- set pct=20 %}{%- set lc='#475569' -%}
+{%- elif cat == 'system' -%}
+  {%- set color='#3b82f6' %}{%- set pct=15 %}{%- set lc='#2563eb' -%}
+{%- elif cat == 'shell' -%}
+  {%- set color='#9ca3af' %}{%- set pct=10 %}{%- set lc='#6b7280' -%}
+{%- else -%}
+  {%- set color='#22c55e' %}{%- set pct=5 %}{%- set lc='#16a34a' -%}
+{%- endif -%}
+<div class="pt-riskbar">
+  <span class="pt-rb-label" style="color:{{ lc }}">Riesgo</span>
+  <div class="pt-rb-track"><div class="pt-rb-fill" style="width:{{ pct }}%;background:{{ color }}"></div></div>
+  <span class="pt-rb-pct" style="color:{{ lc }}">{{ pct }}%</span>
+</div>
+{% endmacro %}
+
+{# ── NODE RENDERER ── #}
+{% macro render_node(n, depth) %}
+{% if n %}
+  {% set proc_name = n.image or n.name or 'unknown.exe' %}
+  {% if depth == 0 %}
+  <div class="pt-pcard">
+    <div class="pt-pcard-top">
+      {{ proc_icon(proc_name) }}
+      <div style="flex:1;min-width:0">
+        <div class="pt-name">{{ proc_name }}</div>
+        {% if n.cmdline %}<div class="pt-sub">{{ n.cmdline|truncate(80) }}</div>{% endif %}
+        {% if n.pid %}<div class="pt-pid">PID {{ n.pid }}</div>{% endif %}
+      </div>
+      {{ proc_tag(proc_name) }}
+    </div>
+    {% if n.cmdline %}<div class="pt-cmdline">{{ n.cmdline }}</div>{% endif %}
+    {{ risk_bar(proc_name) }}
+  </div>
+  {% else %}
+  <div class="pt-child-wrap">
+    <div class="pt-branch"></div>
+    <div class="pt-pcard" style="flex:1">
+      <div class="pt-pcard-top">
+        {{ proc_icon(proc_name) }}
+        <div style="flex:1;min-width:0">
+          <div class="pt-name">{{ proc_name }}</div>
+          {% if n.cmdline %}<div class="pt-sub">{{ n.cmdline|truncate(80) }}</div>{% endif %}
+          {% if n.pid %}
+            <div class="pt-pid">PID {{ n.pid }}{% if n.ppid %} · hijo de PID {{ n.ppid }}{% endif %}</div>
           {% endif %}
-        {% endmacro %}
+        </div>
+        {{ proc_tag(proc_name) }}
+      </div>
+      {% if n.cmdline %}<div class="pt-cmdline">{{ n.cmdline }}</div>{% endif %}
+      {{ risk_bar(proc_name) }}
+    </div>
+  </div>
+  {% endif %}
+  {% if n.children and n.children|length > 0 %}
+    {% for c in n.children %}{{ render_node(c, 1) }}{% endfor %}
+  {% endif %}
+{% endif %}
+{% endmacro %}
 
-        <ul class="list-unstyled" style="margin-top:5px;">
-          {% for root in results.proctree %}
-            {{ render_node(root) }}
-          {% endfor %}
-        </ul>
-        <hr/>
+{# ── RENDER ── #}
+<div class="pt-wrap">
+  {% for root in results.proctree %}
+    {{ render_node(root, 0) }}
+  {% endfor %}
+
+  <div class="pt-summary">
+    <div class="pt-sm">
+      <div class="pt-sm-n" style="color:
+        {%- if results.score >= 75 %}#dc2626
+        {%- elif results.score >= 50 %}#d97706
+        {%- else %}#16a34a{%- endif %}">
+        {{ results.score or '—' }}
+      </div>
+      <div class="pt-sm-l">SCORE</div>
+    </div>
+    <div class="pt-sm">
+      <div class="pt-sm-n" style="color:#6b7280">{{ results.proctree|length }}</div>
+      <div class="pt-sm-l">PROCESOS RAÍZ</div>
+    </div>
+    <div class="pt-sm">
+      <div class="pt-sm-n" style="color:#6b7280;font-size:14px;padding-top:4px">{{ results.mal_family or '—' }}</div>
+      <div class="pt-sm-l">FAMILIA</div>
+    </div>
+  </div>
+</div>
+<hr/>
       {% endif %}
 
       <div class="footer">
