@@ -470,8 +470,9 @@ class CTASCape(CTASCuckoo):
         return cls._TID_TACTICS.get(base, 'Execution')
 
     def _extract_mitre(self, report):
-        """Extrae TTPs del reporte CAPE y los registra en FAME via add_mitre_results."""
+        """Extrae TTPs del reporte CAPE y los almacena en self._mitre_tags."""
         if not report or not isinstance(report, dict):
+            self._mitre_tags = []
             return
 
         ttp = {
@@ -488,7 +489,18 @@ class CTASCape(CTASCuckoo):
             if tactic in ttp and tid and name:
                 ttp[tactic].setdefault(tid, name)
 
-        # 1. Sección attack: {tactic: {tid: name}}  — formato más directo
+        # 1. Campo principal de CAPE: mitre_attck → {tactic: [{t_id, ttp_name, ...}]}
+        mitre_attck = report.get('mitre_attck') or {}
+        if isinstance(mitre_attck, dict):
+            for tactic, techniques in mitre_attck.items():
+                if isinstance(techniques, list):
+                    for item in techniques:
+                        if isinstance(item, dict):
+                            tid = item.get('t_id')
+                            name = item.get('ttp_name') or tid
+                            _add(tactic, tid, name)
+
+        # 2. Sección attack alternativa: {tactic: {tid: name}}
         attack = report.get('attack') or {}
         if isinstance(attack, dict):
             for tactic, techniques in attack.items():
@@ -496,7 +508,7 @@ class CTASCape(CTASCuckoo):
                     for tid, name in techniques.items():
                         _add(tactic, tid, name)
 
-        # 2. signatures[].ttp: {tid: {name, type, ...}}
+        # 3. signatures[].ttp: {tid: {name, type, ...}}
         for sig in (report.get('signatures') or []):
             if not isinstance(sig, dict):
                 continue
@@ -504,13 +516,8 @@ class CTASCape(CTASCuckoo):
                 if not isinstance(info, dict):
                     continue
                 name = info.get('name') or tid
-                # Buscar táctica en la sección attack ya procesada
-                placed = any(
-                    tid in ttp.get(tac, {})
-                    for tac in ttp
-                )
+                placed = any(tid in ttp.get(tac, {}) for tac in ttp)
                 if not placed:
-                    # Buscar táctica en la sección attack del reporte
                     tactic = next(
                         (tac for tac, techs in attack.items()
                          if isinstance(techs, dict) and tid in techs),
@@ -518,7 +525,7 @@ class CTASCape(CTASCuckoo):
                     )
                     _add(tactic, tid, name)
 
-        # 3. Lista top-level ttps: [{ttp/tid, name, tactic}, ...]
+        # 4. Lista top-level ttps: [{ttp/tid, name, tactic}, ...]
         for item in (report.get('ttps') or []):
             if not isinstance(item, dict):
                 continue
@@ -530,7 +537,7 @@ class CTASCape(CTASCuckoo):
         has_ttp = any(v for v in ttp.values())
         if has_ttp:
             self.log('info', f'MITRE TTPs encontrados: {sum(len(v) for v in ttp.values())} técnicas')
-            # Convertir a formato [(tactic, {tid: name}), ...] compatible con el módulo Mitre
+            # Formato [[tactic, {tid: name}], ...] compatible con módulo Mitre (igual que vmray)
             self._mitre_tags = [[tac, techs] for tac, techs in ttp.items() if techs]
         else:
             self.log('info', 'MITRE: sin TTPs en el reporte de CAPE')
