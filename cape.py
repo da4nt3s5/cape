@@ -131,9 +131,11 @@ class CTASCape(CTASCuckoo):
     def _verify_connection(self, cuckoo, retries=3, backoff=5):
         """
         Verifica que el servidor CAPE sea alcanzable haciendo GET /apiv2/cuckoo/status/.
-        Reintenta hasta `retries` veces con espera `backoff` segundos entre intentos.
+        Errores de DNS/socket se abortan inmediatamente (no tiene sentido reintentar).
+        Otros errores transitorios se reintentan hasta `retries` veces con `backoff` segundos.
         Devuelve True si la conexión fue exitosa, False en caso contrario.
         """
+        import socket
         path = "cuckoo/status/"
         url = self._full_url(path)
         sess = self._get_session(cuckoo)
@@ -145,6 +147,11 @@ class CTASCape(CTASCuckoo):
                     self.log('info', f'CAPE connection OK (HTTP {r.status_code})')
                     return True
                 self.log('warning', f'CAPE connection check returned HTTP {r.status_code}')
+            except (socket.gaierror, socket.herror) as e:
+                # DNS resolution failure — no point retrying
+                self.log('warning', f'CAPE connection check failed — DNS error (no retries): {e}')
+                self.log('warning', 'CAPE server unreachable (DNS failure) — aborting analysis')
+                return False
             except Exception as e:
                 self.log('warning', f'CAPE connection check failed (attempt {attempt}/{retries}): {e}')
             if attempt < retries:
