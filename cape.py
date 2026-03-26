@@ -412,6 +412,9 @@ class CTASCape(CTASCuckoo):
                     node["name"] = node.get("image") or node.get("process_name")
                 if not node.get("cmdline"):
                     node["cmdline"] = node.get("command_line")
+                node["category"] = CTASCape._classify_process(
+                    node.get("image") or node.get("name") or ''
+                )
                 children = node.get("children") or []
                 node["children"] = [_norm(c) for c in children if isinstance(c, dict)]
                 return node
@@ -425,6 +428,61 @@ class CTASCape(CTASCuckoo):
 
     def get_report_url(self, task_id, sha256, is_url=False):
         return urljoin(self.web_endpoint, f'analysis/{task_id}/')
+
+    @staticmethod
+    def _classify_process(name):
+        import re
+        n = (name or '').lower()
+        b = n.replace('\\', '/').split('/')[-1].replace('.exe', '').replace('.com', '')
+
+        if (len(b) > 28
+                or re.match(r'^[0-9a-f]{8,}$', b)
+                or re.match(r'^[a-z0-9]{20,}$', b)):
+            return 'malware'
+        if b in {'msbuild', 'csc', 'vbc', 'installutil', 'regasm', 'regsvcs', 'mshta',
+                 'wscript', 'cscript', 'rundll32', 'regsvr32', 'certutil', 'bitsadmin',
+                 'wmic', 'msiexec', 'odbcconf', 'xwizard', 'mavinject', 'forfiles',
+                 'pcalua', 'presentationhost', 'aspnet_compiler', 'ieexec',
+                 'infdefaultinstall', 'cmstp', 'esentutl', 'expand', 'extrac32',
+                 'findstr', 'gpscript', 'hh', 'makecab', 'replace', 'rpcping',
+                 'scriptrunner', 'desktopimgdownldr', 'diskshadow', 'dnscmd',
+                 'vssadmin', 'appsyncpublishingserver', 'microsoft.workflow.compiler'}:
+            return 'lolbin'
+        if b in {'powershell', 'powershell_ise', 'pwsh', 'cmd', 'bash', 'sh', 'wsh',
+                 'autoit3', 'ahk', 'conhost'}:
+            return 'script'
+        if b in {'svchost', 'lsass', 'lsm', 'winlogon', 'csrss', 'smss', 'wininit',
+                 'services', 'spoolsv', 'taskhost', 'taskhostw', 'dwm', 'fontdrvhost',
+                 'ntoskrnl', 'system', 'registry', 'sihost', 'runtimebroker', 'ctfmon',
+                 'dllhost', 'werfault', 'wmiprvse', 'audiodg', 'dashost', 'unsecapp',
+                 'searchprotocolhost', 'searchfilterhost', 'dcomlaunch'}:
+            return 'system'
+        if b in {'explorer', 'taskmgr', 'regedit', 'mmc', 'control', 'mstsc',
+                 'msconfig', 'resmon', 'perfmon'}:
+            return 'shell'
+        if (b in {'iexplore', 'chrome', 'firefox', 'msedge', 'edge', 'opera',
+                  'brave', 'vivaldi', 'chromium'}
+                or 'chrome' in b or 'firefox' in b or 'msedge' in b):
+            return 'browser'
+        if (b in {'winword', 'excel', 'powerpnt', 'outlook', 'onenote', 'mspub',
+                  'visio', 'access', 'wordpad', 'acrord32', 'acrobat', 'foxitreader',
+                  'soffice', 'officeclicktorun'}
+                or 'word' in b or 'excel' in b or 'office' in b):
+            return 'office'
+        if b in {'devenv', 'code', 'node', 'python', 'python3', 'java', 'javaw',
+                 'git', 'npm', 'dotnet', 'cargo', 'rustc', 'gcc', 'clang', 'ruby',
+                 'perl', 'php', 'go', 'gradle', 'mvn'}:
+            return 'dev'
+        if (b in {'mousocoreworker', 'tiworker', 'wuauclt', 'trustedinstaller',
+                  'mpcmdrun', 'msmpeng', 'nissrv', 'searchindexer', 'schtasks',
+                  'taskeng', 'mobsync', 'uhssvc', 'wudfhost'}
+                or 'update' in b or 'install' in b or 'setup' in b):
+            return 'worker'
+        if b in {'netsh', 'ipconfig', 'ping', 'nslookup', 'ftp', 'ssh', 'curl',
+                 'wget', 'nc', 'nmap', 'tracert', 'route', 'arp', 'hostname',
+                 'whoami', 'net', 'nltest', 'dsquery'}:
+            return 'network'
+        return 'generic'
 
     # -------------------- Resultados para la vista --------------------
 

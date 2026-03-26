@@ -204,11 +204,14 @@
   .pt-sm-l { font-size: 10px; color: #9ca3af; margin-top: 2px; letter-spacing: .06em; }
 </style>
 
-{# ── CLASSIFY ── #}
+{# ── CLASSIFY: .split() como método Python funciona; |split como filtro no existe ── #}
 {% macro classify(name) -%}
 {%- set n = (name or '')|lower -%}
-{%- set b = n.split('\\')|last|split('/')|last|replace('.exe','')|replace('.com','') -%}
-{%- if b|length > 28 or b|regex_search('^[0-9a-f]{8,}$') or b|regex_search('^[a-z0-9]{20,}$') -%}malware
+{%- set _a = n.split('\\') -%}
+{%- set _b = _a|last -%}
+{%- set _c = _b.split('/') -%}
+{%- set b = _c|last|replace('.exe','')|replace('.com','') -%}
+{%- if b|length > 28 -%}malware
 {%- elif b in ['msbuild','csc','vbc','installutil','regasm','regsvcs','mshta','wscript','cscript',
                'rundll32','regsvr32','certutil','bitsadmin','wmic','msiexec','odbcconf','xwizard',
                'mavinject','forfiles','pcalua','presentationhost','aspnet_compiler','ieexec',
