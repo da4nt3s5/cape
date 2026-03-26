@@ -109,6 +109,18 @@ class CTASCape(CTASCuckoo):
             self.log('warning', f'No se pudo ajustar verify SSL: {e}')
         return cuckoo
 
+    def _get_session(self, cuckoo):
+        """Devuelve la sesión del cliente cuckoo si existe, o crea una nueva con el token configurado."""
+        if hasattr(cuckoo, "session"):
+            return cuckoo.session
+        sess = requests.Session()
+        token = (getattr(self, 'api_token', '') or '').strip()
+        if token:
+            sess.headers.update({"Authorization": f"Token {token}"})
+        if hasattr(self, 'verify_ssl'):
+            sess.verify = bool(self.verify_ssl)
+        return sess
+
     def _safe_get(self, func, *args, **kwargs):
         try:
             return func(*args, **kwargs)
@@ -195,7 +207,7 @@ class CTASCape(CTASCuckoo):
         path = f"tasks/get/screenshot/{task_id}/"
         url = self._full_url(path)
         self._log_api('GET', path)
-        sess = getattr(cuckoo, "session", None) or requests.Session()
+        sess = self._get_session(cuckoo)
         try:
             r = sess.get(url, timeout=180)
             if r.status_code >= 400:
@@ -251,7 +263,6 @@ class CTASCape(CTASCuckoo):
         new_submission = False
 
         # Subir si no existe
-        # 2) Si no existe, subir UNA vez
         if not task_id:
             # CAPE espera options como STRING (no dict)
             options_str = 'procmemdump=yes,route=none'
@@ -263,7 +274,6 @@ class CTASCape(CTASCuckoo):
             }
 
             # --- Intento 1: usar el wrapper si existe ---
-            new_submission = False
             wrapper_ok = False
             try:
                 if hasattr(cuckoo, 'create_file'):
@@ -293,10 +303,7 @@ class CTASCape(CTASCuckoo):
                     url_create = self._full_url(path_create)
                     self._log_api('POST', path_create, extra=f' (file={os.path.basename(target)})')
 
-                    sess = getattr(cuckoo, "session", None) or requests.Session()
-                    # asegura verify en la sesión si existe
-                    if hasattr(cuckoo, 'session') and hasattr(cuckoo.session, 'verify'):
-                        sess.verify = cuckoo.session.verify
+                    sess = self._get_session(cuckoo)
 
                     with open(target, 'rb') as f:
                         files = {'file': (os.path.basename(target), f)}
@@ -323,13 +330,13 @@ class CTASCape(CTASCuckoo):
         # URL para UI
         self._last_task_id = task_id
 
-        # Espera solo si acabamos de subir
+        # Espera si la tarea está en curso (nueva o encontrada pero aún corriendo)
         status, _ = self._task_status(cuckoo, task_id)
-        if new_submission and status in ('pending', 'running', 'waiting'):
-            self.log('info', 'Waiting for the analysis to be complete (primer chequeo en 7 min)')
-            first_wait = int(getattr(self, 'first_wait', 425))
+        if status in ('pending', 'running', 'waiting'):
+            first_wait = int(getattr(self, 'first_wait', 425)) if new_submission else 0
             self.log('info', f'Waiting for the analysis to be complete (primer chequeo en {first_wait} s)')
-            time.sleep(first_wait)
+            if first_wait > 0:
+                time.sleep(first_wait)
 
             try:
                 def _logged_get_task_view(tid):

@@ -1,1 +1,2 @@
 git+ssh://git@mal-github01.immunityinc.com/MART/cuckoo_api_handler.git
+requests
