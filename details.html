@@ -45,9 +45,11 @@
                 <hr/>
                 <div class="stats">
                     <ul>
+                        {% if results.analysis_url %}
                         <li>
                             <a href="{{results.analysis_url}}" target="_blank"><i class="pe-7s-link"></i> View Report</a>
                         </li>
+                        {% endif %}
                     </ul>
                 </div>
             </div>

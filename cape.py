@@ -109,7 +109,13 @@ class CTASCape(CTASCuckoo):
             }
 
             self.log('info', 'File was not found; now sending sample to Cuckoo')
-            task_id = cuckoo.create_file(os.path.basename(target), target, **options)['data']['task_ids'][0]
+            response = cuckoo.create_file(os.path.basename(target), target, **options)
+
+            if 'error' in response and response['error']:
+                self.log('warning', 'CAPE returned an error: {}'.format(response))
+                return False
+
+            task_id = response['data']['task_ids'][0]
 
         status = cuckoo.get_task_view(task_id)['data']['status']
         return status not in ('pending', 'running', 'waiting')
@@ -157,10 +163,20 @@ class CTASCape(CTASCuckoo):
         detections = self.resolve_single_data('detections')
         if detections:
             mal_family = detections[0]
-        score = float(self.resolve_single_data('malscore')[0]) * 10
+
+        malscore_data = self.resolve_single_data('malscore')
+        score = float(malscore_data[0]) * 10 if malscore_data else 0.0
+
         if score == 100 and mal_family:
             self.add_probable_name(mal_family)
 
-        signatures = [{'severity': item['severity'] * 20, 'description': item['description']} for item in
-                      self.resolve_single_data('signatures.item')]
-        return [('mal_family', mal_family), ('score', score), ('signatures', signatures)]
+        signatures_data = self.resolve_single_data('signatures.item')
+        signatures = [{'severity': item['severity'] * 20, 'description': item['description']}
+                      for item in (signatures_data or [])]
+
+        task_id_data = self.resolve_single_data('info.id')
+        task_id = task_id_data[0] if task_id_data else None
+        analysis_url = self.get_report_url(task_id, None) if task_id else None
+
+        return [('mal_family', mal_family), ('score', score), ('signatures', signatures),
+                ('analysis_url', analysis_url)]
