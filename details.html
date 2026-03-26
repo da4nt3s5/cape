@@ -1,58 +1,206 @@
 <div class="col-md-12">
-    <div class="card">
-        <div class="header">
-            <div class="col-md-8" style="margin-bottom: 0; padding: 0;">
-                <h4 class="title">CAPE Sandbox</h4>
-                <p class="category">Detailed Results</p>
-            </div>
-            <div class="col-md-2" style="margin-bottom: 0; padding: 0;">
-                {% if results.mal_family %}
-                    <label style="margin-bottom: 0">Verdict</label>
-                    <h4 style="margin-bottom: 0;margin-top: 0">
-                        <span class="label label-danger">{{results.mal_family}}</span>
-                    </h4>
-                {% endif %}
-            </div>
-            <div class="col-md-2" style="margin-bottom: 0; padding: 0;">
-                <label style="margin-bottom: 0">Score</label>
-                <h4 style="margin-bottom: 0;margin-top: 0">
-                    {% if results.score > 75 %}
-                        <span class="label label-danger">{{results.score}}</span>
-                    {% elif results.score > 50 %}
-                        <span class="label label-warning">{{results.score}}</span>
-                    {% else %}
-                        <span class="label label-success">{{results.score}}</span>
-                    {% endif %}
-                </h4>
-            </div>
-            <div style="clear: both"></div>
-        </div>
-        <div class="content">
-            <label>Signatures</label>
-            {% for signature in results.signatures %}
-                <div class="close-alert alert
-                    {% if signature.severity > 75 %}
-                        alert-danger
-                    {% elif signature.severity > 50 %}
-                        alert-warning
-                    {% else %}
-                        alert-info
-                    {% endif %}">
-                    {{signature.description}}
-                </div>
-            {% endfor %}
-            <div class="footer">
-                <hr/>
-                <div class="stats">
-                    <ul>
-                        {% if results.analysis_url %}
-                        <li>
-                            <a href="{{results.analysis_url}}" target="_blank"><i class="pe-7s-link"></i> View Report</a>
-                        </li>
-                        {% endif %}
-                    </ul>
-                </div>
-            </div>
-        </div>
+  <div class="card">
+    <div class="header">
+      <div class="col-md-8" style="margin-bottom:0;padding:0;">
+        <h4 class="title">CAPE Sandbox</h4>
+        <p class="category">Detailed Results</p>
+      </div>
+
+      <div class="col-md-2" style="margin-bottom:0;padding:0;">
+        {% if results.mal_family %}
+          <label style="margin-bottom:0">Verdict</label>
+          <h4 style="margin:0">
+            <span class="label label-danger">{{ results.mal_family }}</span>
+          </h4>
+        {% endif %}
+      </div>
+
+      <div class="col-md-2" style="margin-bottom:0;padding:0;">
+        <label style="margin-bottom:0">Score</label>
+        <h4 style="margin:0">
+          {% if results.score >= 75 %}
+            <span class="label label-danger">{{ results.score }}</span>
+          {% elif results.score >= 50 %}
+            <span class="label label-warning">{{ results.score }}</span>
+          {% else %}
+            <span class="label label-success">{{ results.score }}</span>
+          {% endif %}
+        </h4>
+      </div>
+      <div style="clear:both"></div>
     </div>
+
+    <div class="content">
+
+      <!-- Signatures -->
+      {% if results.signatures and results.signatures|length > 0 %}
+        <label>SIGNATURES</label>
+        {% for signature in results.signatures %}
+          <div class="close-alert alert
+            {% if signature.severity >= 75 %}
+              alert-danger
+            {% elif signature.severity >= 50 %}
+              alert-warning
+            {% else %}
+              alert-info
+            {% endif %}">
+            {{ signature.description }}
+          </div>
+        {% endfor %}
+        <hr/>
+      {% endif %}
+
+      <!-- ======= Screenshots (mismo estilo que SIGNATURES) ======= -->
+      <style>
+        .cape-shots-grid{display:flex;flex-wrap:wrap;gap:12px;margin-top:6px}
+        .cape-shot{width:260px;aspect-ratio:16/9;cursor:pointer;border-radius:6px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.25);background:#111;border:0;padding:0}
+        .cape-shot img{width:100%;height:100%;object-fit:cover;display:block}
+
+        /* Lightbox */
+        .cape-lightbox{
+          position:fixed; left:0; top:0; width:100vw; height:100vh;
+          display:none; background:rgba(0,0,0,.92); z-index:2147483647;
+        }
+        .cape-lightbox.show{display:block}
+        .cape-stage{
+          position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+          padding:40px; box-sizing:border-box;
+        }
+        .cape-full{
+          max-width:100%; max-height:100%;
+          width:auto; height:auto; display:block; object-fit:contain;
+          box-shadow:0 0 0 2px rgba(255,255,255,.06);
+        }
+        .cape-close, .cape-prev, .cape-next{
+          position:absolute; background:transparent; border:none; color:#fff; cursor:pointer; line-height:1;
+          text-shadow:0 2px 8px rgba(0,0,0,.6); padding:0 8px;
+        }
+        .cape-close{top:14px; right:20px; font-size:40px}
+        .cape-prev{left:22px; top:50%; transform:translateY(-50%); font-size:70px}
+        .cape-next{right:22px; top:50%; transform:translateY(-50%); font-size:70px}
+        .cape-counter{position:absolute; left:22px; bottom:16px; color:#bbb; font-size:14px}
+      </style>
+
+      <label>SCREENSHOTS</label>
+      {% if results.screenshots and results.screenshots|length > 0 %}
+        <div class="cape-shots-grid">
+          {% for uri in results.screenshots %}
+            <button class="cape-shot" data-index="{{ loop.index0 }}"><img src="{{ uri }}" alt="screenshot {{ loop.index }}"></button>
+          {% endfor %}
+        </div>
+      {% else %}
+        <em>No screenshots available</em>
+      {% endif %}
+      <hr/>
+
+      <!-- Lightbox -->
+      <div id="capeLightbox" class="cape-lightbox" aria-hidden="true">
+        <div class="cape-stage" id="capeStage">
+          <button class="cape-close" type="button" aria-label="Close">×</button>
+          <button class="cape-prev"  type="button" aria-label="Previous">‹</button>
+          <img class="cape-full" id="capeLightboxImg" src="" alt="screenshot">
+          <button class="cape-next"  type="button" aria-label="Next">›</button>
+          <div class="cape-counter"><span id="capeLbCurr">1</span> / <span id="capeLbTotal">{{ results.screenshots|length or 0 }}</span></div>
+        </div>
+      </div>
+
+      <script>
+      (function(){
+        var thumbBtns = Array.from(document.querySelectorAll('.cape-shot'));
+        if(!thumbBtns.length) return;
+
+        var shots = thumbBtns.map(function(b){ return b.querySelector('img').src; });
+        var lb    = document.getElementById('capeLightbox');
+        var stage = document.getElementById('capeStage');
+        var img   = document.getElementById('capeLightboxImg');
+        var prev  = lb.querySelector('.cape-prev');
+        var next  = lb.querySelector('.cape-next');
+        var close = lb.querySelector('.cape-close');
+        var cCurr = document.getElementById('capeLbCurr');
+        var cTotal= document.getElementById('capeLbTotal');
+        if(cTotal) cTotal.textContent = shots.length;
+        var i = 0;
+
+        function show(n){
+          if(!shots.length) return;
+          if(n<0) n = shots.length-1;
+          if(n>=shots.length) n = 0;
+          i = n;
+          img.src = shots[i];
+          if(cCurr) cCurr.textContent = i+1;
+          lb.classList.add('show');
+          document.body.style.overflow = 'hidden';
+        }
+        function hide(){
+          lb.classList.remove('show');
+          document.body.style.overflow = '';
+        }
+
+        thumbBtns.forEach(function(b, idx){ b.addEventListener('click', function(){ show(idx); }); });
+        prev.addEventListener('click', function(e){ e.stopPropagation(); show(i-1); });
+        next.addEventListener('click', function(e){ e.stopPropagation(); show(i+1); });
+        close.addEventListener('click', function(e){ e.stopPropagation(); hide(); });
+
+        // Cerrar clic fondo
+        lb.addEventListener('click', function(e){
+          if(e.target === lb) hide();
+        });
+        // Evitar cierre por clicks dentro del stage
+        stage.addEventListener('click', function(e){ e.stopPropagation(); });
+
+        // Teclado
+        document.addEventListener('keydown', function(e){
+          if(!lb.classList.contains('show')) return;
+          if(e.key === 'Escape') hide();
+          if(e.key === 'ArrowRight') show(i+1);
+          if(e.key === 'ArrowLeft')  show(i-1);
+        });
+      })();
+      </script>
+
+      <!-- Process Tree -->
+      {% if results.proctree and results.proctree|length > 0 %}
+        <label>PROCESS TREE</label>
+
+        {% macro render_node(n) %}
+          {% if n %}
+            <li>
+              <strong>{{ n.image or n.name }}</strong>
+              {% if n.pid %}<small>&nbsp;(PID: {{ n.pid }})</small>{% endif %}
+              {% if n.cmdline %}<div><code>{{ n.cmdline }}</code></div>{% endif %}
+              {% if n.children and n.children|length > 0 %}
+                <ul style="margin-top:5px;">
+                  {% for c in n.children %}
+                    {{ render_node(c) }}
+                  {% endfor %}
+                </ul>
+              {% endif %}
+            </li>
+          {% endif %}
+        {% endmacro %}
+
+        <ul class="list-unstyled" style="margin-top:5px;">
+          {% for root in results.proctree %}
+            {{ render_node(root) }}
+          {% endfor %}
+        </ul>
+        <hr/>
+      {% endif %}
+
+      <div class="footer">
+        <div class="stats">
+          <ul>
+            {% if results.analysis_url %}
+              <li>
+                <a href="{{ results.analysis_url }}" target="_blank">
+                  <i class="pe-7s-link"></i> View Report
+                </a>
+              </li>
+            {% endif %}
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
 </div>
