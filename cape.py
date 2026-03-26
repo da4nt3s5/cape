@@ -128,6 +128,31 @@ class CTASCape(CTASCuckoo):
             self.log('warning', f'Error during request: {e}')
             return None
 
+    def _verify_connection(self, cuckoo, retries=3, backoff=5):
+        """
+        Verifica que el servidor CAPE sea alcanzable haciendo GET /apiv2/cuckoo/status/.
+        Reintenta hasta `retries` veces con espera `backoff` segundos entre intentos.
+        Devuelve True si la conexión fue exitosa, False en caso contrario.
+        """
+        path = "cuckoo/status/"
+        url = self._full_url(path)
+        sess = self._get_session(cuckoo)
+        for attempt in range(1, retries + 1):
+            try:
+                self.log('info', f'[{attempt}/{retries}] Checking CAPE connection: {url}')
+                r = sess.get(url, timeout=15)
+                if r.status_code < 500:
+                    self.log('info', f'CAPE connection OK (HTTP {r.status_code})')
+                    return True
+                self.log('warning', f'CAPE connection check returned HTTP {r.status_code}')
+            except Exception as e:
+                self.log('warning', f'CAPE connection check failed (attempt {attempt}/{retries}): {e}')
+            if attempt < retries:
+                self.log('info', f'Retrying connection check in {backoff}s ...')
+                time.sleep(backoff)
+        self.log('warning', f'CAPE server unreachable after {retries} attempts — aborting analysis')
+        return False
+
     # -------------------------------- hashes --------------------------------
 
     def _hash_file(self, path):
@@ -143,25 +168,29 @@ class CTASCape(CTASCuckoo):
 
     # -------------------------------- búsqueda por hash (apiv2 /tasks/search) --------------------------------
 
-    def _search_task_by_hash(self, cuckoo, algo, digest):
+    def _search_task_by_hash(self, cuckoo, algo, digest, retries=3, backoff=5):
         if not hasattr(cuckoo, "session") or not isinstance(digest, str) or not digest:
             return None
         path = f"tasks/search/{algo}/{digest}/"
-        self._log_api('GET', path)
-        try:
-            r = cuckoo.session.get(self._full_url(path), timeout=20)
-            r.raise_for_status()
-            j = r.json()
-            data = j.get("data", j) if isinstance(j, dict) else j
-            if not isinstance(data, list):
-                data = [data]
-            cand = [t for t in data if isinstance(t, dict) and t.get("id")]
-            tid = max(cand, key=lambda t: t["id"]).get("id") if cand else None
-            self.log('info', f'Resultado búsqueda {algo}: task_id={tid}')
-            return tid
-        except Exception as e:
-            self.log('warning', f'Búsqueda por hash falló ({algo}): {e}')
-            return None
+        for attempt in range(1, retries + 1):
+            self._log_api('GET', path, extra=f' (attempt {attempt}/{retries})')
+            try:
+                r = cuckoo.session.get(self._full_url(path), timeout=20)
+                r.raise_for_status()
+                j = r.json()
+                data = j.get("data", j) if isinstance(j, dict) else j
+                if not isinstance(data, list):
+                    data = [data]
+                cand = [t for t in data if isinstance(t, dict) and t.get("id")]
+                tid = max(cand, key=lambda t: t["id"]).get("id") if cand else None
+                self.log('info', f'Hash search result ({algo}): task_id={tid}')
+                return tid
+            except Exception as e:
+                self.log('warning', f'Hash search failed ({algo}, attempt {attempt}/{retries}): {e}')
+                if attempt < retries:
+                    self.log('info', f'Retrying hash search in {backoff}s ...')
+                    time.sleep(backoff)
+        return None
 
     def _find_existing_task(self, cuckoo, hashes):
         for algo in ("sha256", "sha1", "md5"):
@@ -245,6 +274,10 @@ class CTASCape(CTASCuckoo):
 
     def get_report(self, target, sha256, file_type):
         cuckoo = self._make_client()
+
+        # Verify CAPE server is reachable before doing anything else
+        if not self._verify_connection(cuckoo):
+            return None
 
         # Asegura tener md5/sha1/sha256
         hashes = {"sha256": sha256, "sha1": None, "md5": None}
