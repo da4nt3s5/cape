@@ -1,0 +1,56 @@
+<div class="col-md-12">
+    <div class="card">
+        <div class="header">
+            <div class="col-md-8" style="margin-bottom: 0; padding: 0;">
+                <h4 class="title">CAPE Sandbox</h4>
+                <p class="category">Detailed Results</p>
+            </div>
+            <div class="col-md-2" style="margin-bottom: 0; padding: 0;">
+                {% if results.mal_family %}
+                    <label style="margin-bottom: 0">Verdict</label>
+                    <h4 style="margin-bottom: 0;margin-top: 0">
+                        <span class="label label-danger">{{results.mal_family}}</span>
+                    </h4>
+                {% endif %}
+            </div>
+            <div class="col-md-2" style="margin-bottom: 0; padding: 0;">
+                <label style="margin-bottom: 0">Score</label>
+                <h4 style="margin-bottom: 0;margin-top: 0">
+                    {% if results.score > 75 %}
+                        <span class="label label-danger">{{results.score}}</span>
+                    {% elif results.score > 50 %}
+                        <span class="label label-warning">{{results.score}}</span>
+                    {% else %}
+                        <span class="label label-success">{{results.score}}</span>
+                    {% endif %}
+                </h4>
+            </div>
+            <div style="clear: both"></div>
+        </div>
+        <div class="content">
+            <label>Signatures</label>
+            {% for signature in results.signatures %}
+                <div class="close-alert alert
+                    {% if signature.severity > 75 %}
+                        alert-danger
+                    {% elif signature.severity > 50 %}
+                        alert-warning
+                    {% else %}
+                        alert-info
+                    {% endif %}">
+                    {{signature.description}}
+                </div>
+            {% endfor %}
+            <div class="footer">
+                <hr/>
+                <div class="stats">
+                    <ul>
+                        <li>
+                            <a href="{{results.analysis_url}}" target="_blank"><i class="pe-7s-link"></i> View Report</a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
