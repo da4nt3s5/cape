@@ -354,6 +354,7 @@ class CTASCape(CTASCuckoo):
             if report:
                 self.log('info', 'Downloading report from server')
                 self.save_report(report, hashes.get("sha256"))
+                self._extract_mitre(report)
             else:
                 self.log('warning', f'Análisis no finalizado o sin reporte (status={status}). URL: {self.get_report_url(task_id, hashes.get("sha256"))}')
         except Exception as e:
@@ -425,6 +426,116 @@ class CTASCape(CTASCuckoo):
             self.log('warning', f'Error construyendo process tree: {e}')
 
         return task_id
+
+    # -------------------------------- MITRE ATT&CK --------------------------------
+
+    # Mapeo mínimo TID -> tácticas primarias para cuando el reporte no lo incluye.
+    _TID_TACTICS = {
+        'T1548': 'Privilege Escalation', 'T1134': 'Privilege Escalation',
+        'T1547': 'Persistence',          'T1543': 'Persistence',
+        'T1546': 'Persistence',          'T1574': 'Privilege Escalation',
+        'T1055': 'Defense Evasion',      'T1027': 'Defense Evasion',
+        'T1036': 'Defense Evasion',      'T1070': 'Defense Evasion',
+        'T1112': 'Defense Evasion',      'T1140': 'Defense Evasion',
+        'T1562': 'Defense Evasion',      'T1564': 'Defense Evasion',
+        'T1059': 'Execution',            'T1106': 'Execution',
+        'T1129': 'Execution',            'T1203': 'Execution',
+        'T1204': 'Execution',            'T1053': 'Execution',
+        'T1003': 'Credential Access',    'T1056': 'Credential Access',
+        'T1110': 'Credential Access',    'T1555': 'Credential Access',
+        'T1012': 'Discovery',            'T1018': 'Discovery',
+        'T1057': 'Discovery',            'T1082': 'Discovery',
+        'T1083': 'Discovery',            'T1518': 'Discovery',
+        'T1016': 'Discovery',            'T1033': 'Discovery',
+        'T1007': 'Discovery',            'T1069': 'Discovery',
+        'T1087': 'Discovery',
+        'T1071': 'Command and Control',  'T1095': 'Command and Control',
+        'T1105': 'Command and Control',  'T1571': 'Command and Control',
+        'T1572': 'Command and Control',  'T1573': 'Command and Control',
+        'T1041': 'Exfiltration',         'T1048': 'Exfiltration',
+        'T1486': 'Impact',               'T1489': 'Impact',
+        'T1490': 'Impact',               'T1496': 'Impact',
+        'T1113': 'Collection',           'T1115': 'Collection',
+        'T1005': 'Collection',
+        'T1566': 'Initial Access',       'T1190': 'Initial Access',
+        'T1195': 'Initial Access',
+        'T1588': 'Resource Development', 'T1583': 'Resource Development',
+        'T1589': 'Reconnaissance',       'T1590': 'Reconnaissance',
+    }
+
+    @classmethod
+    def _tid_to_tactic(cls, tid):
+        """Devuelve la táctica primaria para un TID, o 'Execution' como fallback."""
+        base = tid.split('.')[0] if tid else ''
+        return cls._TID_TACTICS.get(base, 'Execution')
+
+    def _extract_mitre(self, report):
+        """Extrae TTPs del reporte CAPE y los registra en FAME via add_mitre_results."""
+        if not report or not isinstance(report, dict):
+            return
+
+        ttp = {
+            'Reconnaissance': {},       'Resource Development': {},
+            'Initial Access': {},       'Execution': {},
+            'Persistence': {},          'Privilege Escalation': {},
+            'Defense Evasion': {},      'Credential Access': {},
+            'Discovery': {},            'Lateral Movement': {},
+            'Collection': {},           'Command and Control': {},
+            'Exfiltration': {},         'Impact': {},
+        }
+
+        def _add(tactic, tid, name):
+            if tactic in ttp and tid and name:
+                ttp[tactic].setdefault(tid, name)
+
+        # 1. Sección attack: {tactic: {tid: name}}  — formato más directo
+        attack = report.get('attack') or {}
+        if isinstance(attack, dict):
+            for tactic, techniques in attack.items():
+                if isinstance(techniques, dict):
+                    for tid, name in techniques.items():
+                        _add(tactic, tid, name)
+
+        # 2. signatures[].ttp: {tid: {name, type, ...}}
+        for sig in (report.get('signatures') or []):
+            if not isinstance(sig, dict):
+                continue
+            for tid, info in (sig.get('ttp') or {}).items():
+                if not isinstance(info, dict):
+                    continue
+                name = info.get('name') or tid
+                # Buscar táctica en la sección attack ya procesada
+                placed = any(
+                    tid in ttp.get(tac, {})
+                    for tac in ttp
+                )
+                if not placed:
+                    # Buscar táctica en la sección attack del reporte
+                    tactic = next(
+                        (tac for tac, techs in attack.items()
+                         if isinstance(techs, dict) and tid in techs),
+                        self._tid_to_tactic(tid)
+                    )
+                    _add(tactic, tid, name)
+
+        # 3. Lista top-level ttps: [{ttp/tid, name, tactic}, ...]
+        for item in (report.get('ttps') or []):
+            if not isinstance(item, dict):
+                continue
+            tid = item.get('ttp') or item.get('tid') or item.get('technique_id')
+            name = item.get('name') or item.get('technique_name') or tid
+            tactic = item.get('tactic') or item.get('tactic_name') or self._tid_to_tactic(tid)
+            _add(tactic, tid, name)
+
+        has_ttp = any(v for v in ttp.values())
+        if has_ttp:
+            self.log('info', f'MITRE TTPs encontrados: {sum(len(v) for v in ttp.values())} técnicas')
+            try:
+                self.add_mitre_results(ttp)
+            except Exception as e:
+                self.log('warning', f'No se pudo registrar MITRE TTPs: {e}')
+        else:
+            self.log('info', 'MITRE: sin TTPs en el reporte de CAPE')
 
     def get_report_url(self, task_id, sha256, is_url=False):
         return urljoin(self.web_endpoint, f'analysis/{task_id}/')
