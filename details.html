@@ -50,7 +50,7 @@
         <hr/>
       {% endif %}
 
-      <!-- ======= Screenshots (mismo estilo que SIGNATURES) ======= -->
+      <!-- ======= Screenshots ======= -->
       <style>
         .cape-shots-grid{display:flex;flex-wrap:wrap;gap:12px;margin-top:6px}
         .cape-shot{width:260px;aspect-ratio:16/9;cursor:pointer;border-radius:6px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.25);background:#111;border:0;padding:0}
@@ -141,11 +141,11 @@
         next.addEventListener('click', function(e){ e.stopPropagation(); show(i+1); });
         close.addEventListener('click', function(e){ e.stopPropagation(); hide(); });
 
-        // Cerrar clic fondo
+        // Close on background click
         lb.addEventListener('click', function(e){
           if(e.target === lb) hide();
         });
-        // Evitar cierre por clicks dentro del stage
+        // Prevent close on clicks inside stage
         stage.addEventListener('click', function(e){ e.stopPropagation(); });
 
         // Teclado
@@ -204,7 +204,7 @@
   .pt-sm-l { font-size: 10px; color: #9ca3af; margin-top: 2px; letter-spacing: .06em; }
 </style>
 
-{# ── CLASSIFY: .split() como método Python funciona; |split como filtro no existe ── #}
+{# ── CLASSIFY: .split() works as a Python method; |split does not exist as a Jinja2 filter ── #}
 {% macro classify(name) -%}
 {%- set n = (name or '')|lower -%}
 {%- set _a = n.split('\\') -%}
@@ -384,14 +384,14 @@
 {%- if cat == 'malware' -%}<span class="pt-tag pt-tag-red">MALWARE</span>
 {%- elif cat == 'lolbin' -%}<span class="pt-tag pt-tag-orange">LOLBIN</span>
 {%- elif cat == 'script' -%}<span class="pt-tag pt-tag-purple">SCRIPT</span>
-{%- elif cat == 'system' -%}<span class="pt-tag pt-tag-blue">SISTEMA</span>
+{%- elif cat == 'system' -%}<span class="pt-tag pt-tag-blue">SYSTEM</span>
 {%- elif cat == 'shell' -%}<span class="pt-tag pt-tag-gray">SHELL</span>
 {%- elif cat == 'browser' -%}<span class="pt-tag pt-tag-teal">BROWSER</span>
 {%- elif cat == 'office' -%}<span class="pt-tag pt-tag-green">OFFICE</span>
 {%- elif cat == 'dev' -%}<span class="pt-tag pt-tag-amber">DEV</span>
 {%- elif cat == 'worker' -%}<span class="pt-tag pt-tag-slate">WORKER</span>
 {%- elif cat == 'network' -%}<span class="pt-tag pt-tag-teal">NETWORK</span>
-{%- else -%}<span class="pt-tag pt-tag-green">LIMPIO</span>
+{%- else -%}<span class="pt-tag pt-tag-green">CLEAN</span>
 {%- endif %}
 {% endmacro %}
 
@@ -422,7 +422,7 @@
   {%- set color='#22c55e' %}{%- set pct=5 %}{%- set lc='#16a34a' -%}
 {%- endif -%}
 <div class="pt-riskbar">
-  <span class="pt-rb-label" style="color:{{ lc }}">Riesgo</span>
+  <span class="pt-rb-label" style="color:{{ lc }}">RISK</span>
   <div class="pt-rb-track"><div class="pt-rb-fill" style="width:{{ pct }}%;background:{{ color }}"></div></div>
   <span class="pt-rb-pct" style="color:{{ lc }}">{{ pct }}%</span>
 </div>
@@ -456,7 +456,7 @@
           <div class="pt-name">{{ proc_name }}</div>
           {% if n.cmdline %}<div class="pt-sub">{{ n.cmdline|truncate(80) }}</div>{% endif %}
           {% if n.pid %}
-            <div class="pt-pid">PID {{ n.pid }}{% if n.ppid %} · hijo de PID {{ n.ppid }}{% endif %}</div>
+            <div class="pt-pid">PID {{ n.pid }}{% if n.ppid %} · child of PID {{ n.ppid }}{% endif %}</div>
           {% endif %}
         </div>
         {{ proc_tag(proc_name) }}
