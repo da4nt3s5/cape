@@ -530,12 +530,11 @@ class CTASCape(CTASCuckoo):
         has_ttp = any(v for v in ttp.values())
         if has_ttp:
             self.log('info', f'MITRE TTPs encontrados: {sum(len(v) for v in ttp.values())} técnicas')
-            try:
-                self.add_mitre_results(ttp)
-            except Exception as e:
-                self.log('warning', f'No se pudo registrar MITRE TTPs: {e}')
+            # Convertir a formato [(tactic, {tid: name}), ...] compatible con el módulo Mitre
+            self._mitre_tags = [[tac, techs] for tac, techs in ttp.items() if techs]
         else:
             self.log('info', 'MITRE: sin TTPs en el reporte de CAPE')
+            self._mitre_tags = []
 
     def get_report_url(self, task_id, sha256, is_url=False):
         return urljoin(self.web_endpoint, f'analysis/{task_id}/')
@@ -649,9 +648,10 @@ class CTASCape(CTASCuckoo):
         tid = getattr(self, "_last_task_id", None)
         analysis_url = self.get_report_url(tid, None) if tid else ""
 
-        # Adjuntar screenshots y árbol (dos claves por compatibilidad)
+        # Adjuntar screenshots, árbol y MITRE tags
         screenshots = getattr(self, "_screenshots", []) or []
         process_tree = getattr(self, "_process_tree", []) or []
+        mitre_tags = getattr(self, "_mitre_tags", []) or []
 
         # Sugerir nombre si el score es 100
         if score >= 100 and family:
@@ -668,4 +668,5 @@ class CTASCape(CTASCuckoo):
             ('screenshots', screenshots),     # data-URIs list
             ('process_tree', process_tree),    # clave "nueva"
             ('proctree', process_tree),        # alias para plantillas existentes
+            ('mitre_tags', mitre_tags),        # para el módulo Mitre: [[tactic, {tid: name}], ...]
         ]
